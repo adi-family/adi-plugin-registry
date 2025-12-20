@@ -1,0 +1,31 @@
+[package]
+name = "adi-plugin-registry"
+version = "0.8.4"
+edition = "2021"
+license = "BSL-1.0"
+authors = ["ADI Team"]
+description = "HTTP server for ADI plugin registry"
+
+[[bin]]
+name = "adi-plugin-registry"
+path = "src/main.rs"
+
+[dependencies]
+lib-plugin-registry = { git = "https://github.com/adi-family/cli.git", branch = "main" }
+lib-plugin-manifest = { git = "https://github.com/adi-family/cli.git", branch = "main" }
+axum = { version = "0.7", features = ["multipart"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace", "limit"] }
+tokio = { version = "1.0", features = ["full"] }
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+flate2 = "1"
+tar = "0.4"
+tokio-util = { version = "0.7", features = ["io"] }
+semver = "1"
