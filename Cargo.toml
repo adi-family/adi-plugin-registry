@@ -11,8 +11,8 @@ name = "adi-plugin-registry"
 path = "src/main.rs"
 
 [dependencies]
-lib-plugin-registry = { git = "https://github.com/adi-family/cli.git", branch = "main" }
-lib-plugin-manifest = { git = "https://github.com/adi-family/cli.git", branch = "main" }
+lib-plugin-registry = { path = "../lib-plugin-registry" }
+lib-plugin-manifest = { path = "../lib-plugin-manifest" }
 axum = { version = "0.7", features = ["multipart"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace", "limit"] }
