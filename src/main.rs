@@ -2,13 +2,14 @@ mod storage;
 
 use anyhow::Result;
 use axum::{
+    Json, Router,
     body::Body,
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
+use lib_http_common::version_header_layer;
 use lib_plugin_registry::SearchResults;
 use serde::Deserialize;
 use std::net::SocketAddr;
@@ -20,7 +21,7 @@ use tokio_util::io::ReaderStream;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 struct AppState {
     storage: RegistryStorage,
@@ -111,6 +112,10 @@ async fn main() -> Result<()> {
             post(publish_plugin),
         )
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100MB limit for plugin uploads
+        .layer(version_header_layer(
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION"),
+        ))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -154,7 +159,7 @@ async fn search(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -271,7 +276,7 @@ async fn publish_package(
                         StatusCode::BAD_REQUEST,
                         Json(serde_json::json!({ "error": format!("Failed to read file: {}", e) })),
                     )
-                        .into_response()
+                        .into_response();
                 }
             }
         }
@@ -284,7 +289,7 @@ async fn publish_package(
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({ "error": "No file uploaded" })),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -445,7 +450,7 @@ async fn publish_plugin(
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({ "error": "No file uploaded" })),
             )
-                .into_response()
+                .into_response();
         }
     };
 
