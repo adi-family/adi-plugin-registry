@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use lib_plugin_registry::{
-    PackageEntry, PackageInfo, PlatformBuild, PluginEntry, PluginInfo, RegistryIndex,
+    PackageEntry, PackageInfo, PlatformBuild, PluginEntry, PluginInfo, RegistryIndex, WebUiMeta,
 };
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -216,7 +216,10 @@ impl RegistryStorage {
     pub async fn get_plugin_info(&self, id: &str, version: &str) -> Result<PluginInfo> {
         let path = self.plugin_version_dir(id, version).join("info.json");
         let data = fs::read_to_string(&path).await?;
-        serde_json::from_str(&data).context("Failed to parse plugin info")
+        let mut info: PluginInfo =
+            serde_json::from_str(&data).context("Failed to parse plugin info")?;
+        info.web_ui = self.web_ui_meta(id, version);
+        Ok(info)
     }
 
     /// Get latest plugin version.
@@ -274,6 +277,7 @@ impl RegistryStorage {
                 version: version.to_string(),
                 platforms: Vec::new(),
                 published_at: now_unix(),
+                web_ui: None,
             }
         };
 
@@ -347,6 +351,54 @@ impl RegistryStorage {
         self.save_index(&index).await
     }
 
+    // === Web UI Operations ===
+
+    /// Store the single JS entry point for a plugin's web UI.
+    pub async fn publish_plugin_web_ui(
+        &self,
+        id: &str,
+        version: &str,
+        data: &[u8],
+    ) -> Result<()> {
+        let version_dir = self.plugin_version_dir(id, version);
+        fs::create_dir_all(&version_dir).await?;
+
+        // Write JS file
+        let js_path = version_dir.join("web.js");
+        let mut file = fs::File::create(&js_path).await?;
+        file.write_all(data).await?;
+
+        // Write size metadata
+        let meta = serde_json::json!({ "size_bytes": data.len() });
+        let meta_path = version_dir.join("web_meta.json");
+        fs::write(&meta_path, serde_json::to_string_pretty(&meta)?).await?;
+
+        Ok(())
+    }
+
+    /// Get the filesystem path to a plugin's web UI JS file.
+    pub fn get_plugin_web_ui_path(&self, id: &str, version: &str) -> PathBuf {
+        self.plugin_version_dir(id, version).join("web.js")
+    }
+
+    /// Check if a plugin version has a web UI.
+    pub fn has_plugin_web_ui(&self, id: &str, version: &str) -> bool {
+        self.get_plugin_web_ui_path(id, version).exists()
+    }
+
+    /// Build WebUiMeta for a plugin version if web.js exists.
+    fn web_ui_meta(&self, id: &str, version: &str) -> Option<WebUiMeta> {
+        let js_path = self.get_plugin_web_ui_path(id, version);
+        if !js_path.exists() {
+            return None;
+        }
+        let size_bytes = std::fs::metadata(&js_path).map(|m| m.len()).unwrap_or(0);
+        Some(WebUiMeta {
+            entry_url: format!("/v1/plugins/{}/{}/web.js", id, version),
+            size_bytes,
+        })
+    }
+
     /// Increment download counter.
     pub async fn increment_downloads(&self, kind: &str, id: &str) -> Result<()> {
         let mut index = self.load_index().await?;
@@ -380,5 +432,115 @@ fn semver_greater(a: &str, b: &str) -> bool {
     match (semver::Version::parse(a), semver::Version::parse(b)) {
         (Ok(va), Ok(vb)) => va > vb,
         _ => a > b,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn setup() -> (RegistryStorage, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().unwrap();
+        let storage = RegistryStorage::new(tmp.path().to_path_buf());
+        storage.init().await.unwrap();
+        // Publish a base plugin so tests can attach web UI
+        storage
+            .publish_plugin(
+                "adi.tasks",
+                "Tasks",
+                "Task management",
+                "core",
+                "1.0.0",
+                "darwin-aarch64",
+                b"fake binary",
+                "ADI Team",
+                vec![],
+            )
+            .await
+            .unwrap();
+        (storage, tmp)
+    }
+
+    #[tokio::test]
+    async fn test_publish_web_ui_creates_file() {
+        let (storage, _tmp) = setup().await;
+        let js = b"console.log('hello');";
+        storage
+            .publish_plugin_web_ui("adi.tasks", "1.0.0", js)
+            .await
+            .unwrap();
+        let path = storage.get_plugin_web_ui_path("adi.tasks", "1.0.0");
+        assert!(path.exists());
+        let content = std::fs::read(&path).unwrap();
+        assert_eq!(content, js);
+    }
+
+    #[tokio::test]
+    async fn test_publish_web_ui_size_metadata() {
+        let (storage, _tmp) = setup().await;
+        let js = b"export default class {}";
+        storage
+            .publish_plugin_web_ui("adi.tasks", "1.0.0", js)
+            .await
+            .unwrap();
+        let meta_path = storage
+            .plugin_version_dir("adi.tasks", "1.0.0")
+            .join("web_meta.json");
+        let meta: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(meta_path).unwrap()).unwrap();
+        assert_eq!(meta["size_bytes"], js.len() as u64);
+    }
+
+    #[tokio::test]
+    async fn test_has_web_ui_true() {
+        let (storage, _tmp) = setup().await;
+        storage
+            .publish_plugin_web_ui("adi.tasks", "1.0.0", b"js code")
+            .await
+            .unwrap();
+        assert!(storage.has_plugin_web_ui("adi.tasks", "1.0.0"));
+    }
+
+    #[tokio::test]
+    async fn test_has_web_ui_false() {
+        let (storage, _tmp) = setup().await;
+        assert!(!storage.has_plugin_web_ui("adi.tasks", "1.0.0"));
+    }
+
+    #[tokio::test]
+    async fn test_publish_web_ui_overwrite() {
+        let (storage, _tmp) = setup().await;
+        storage
+            .publish_plugin_web_ui("adi.tasks", "1.0.0", b"first")
+            .await
+            .unwrap();
+        storage
+            .publish_plugin_web_ui("adi.tasks", "1.0.0", b"second")
+            .await
+            .unwrap();
+        let path = storage.get_plugin_web_ui_path("adi.tasks", "1.0.0");
+        let content = std::fs::read_to_string(path).unwrap();
+        assert_eq!(content, "second");
+    }
+
+    #[tokio::test]
+    async fn test_plugin_info_includes_web_ui() {
+        let (storage, _tmp) = setup().await;
+        let js = b"export default class MyPlugin {}";
+        storage
+            .publish_plugin_web_ui("adi.tasks", "1.0.0", js)
+            .await
+            .unwrap();
+        let info = storage.get_plugin_info("adi.tasks", "1.0.0").await.unwrap();
+        let web_ui = info.web_ui.unwrap();
+        assert_eq!(web_ui.entry_url, "/v1/plugins/adi.tasks/1.0.0/web.js");
+        assert_eq!(web_ui.size_bytes, js.len() as u64);
+    }
+
+    #[tokio::test]
+    async fn test_plugin_info_without_web_ui() {
+        let (storage, _tmp) = setup().await;
+        let info = storage.get_plugin_info("adi.tasks", "1.0.0").await.unwrap();
+        assert!(info.web_ui.is_none());
     }
 }

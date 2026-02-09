@@ -17,3 +17,7 @@ semver = "1"
 tokio = { version = "1.0", features = ["fs", "io-util"] }
 anyhow = "1.0"
 tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["rt", "macros"] }
+tempfile = "3"

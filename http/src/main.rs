@@ -298,6 +298,61 @@ impl PluginPublishServiceHandler for AppState {
     }
 }
 
+#[async_trait]
+impl PluginWebUiPublishServiceHandler for AppState {
+    async fn publish(
+        &self,
+        id: String,
+        version: String,
+        body: Vec<u8>,
+    ) -> Result<PublishResponse, ApiError> {
+        if body.is_empty() {
+            return Err(bad_request("Empty body — expected JavaScript content"));
+        }
+
+        self.storage
+            .publish_plugin_web_ui(&id, &version, &body)
+            .await
+            .map_err(internal_error)?;
+
+        Ok(PublishResponse {
+            status: "published".to_string(),
+            id,
+            version,
+            platform: "web".to_string(),
+        })
+    }
+}
+
+#[async_trait]
+impl PluginWebUiServiceHandler for AppState {
+    async fn download(
+        &self,
+        id: String,
+        version: String,
+    ) -> Result<axum::response::Response, ApiError> {
+        let path = self.storage.get_plugin_web_ui_path(&id, &version);
+        if !path.exists() {
+            return Err(not_found("Plugin web UI not found"));
+        }
+
+        let file = File::open(&path).await.map_err(internal_error)?;
+        let stream = ReaderStream::new(file);
+        let body = Body::from_stream(stream);
+
+        axum::response::Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/javascript")
+            .header(
+                header::CACHE_CONTROL,
+                "public, max-age=31536000, immutable",
+            )
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+            .body(body)
+            .map_err(internal_error)
+    }
+}
+
 /// Convert core types to generated models via serde Value
 fn json_convert<T: serde::Serialize, U: serde::de::DeserializeOwned>(
     val: &T,

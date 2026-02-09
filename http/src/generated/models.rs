@@ -63,11 +63,20 @@ pub struct PackageInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WebUiMeta {
+    pub entry_url: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PluginInfo {
     pub id: String,
     pub version: String,
     pub platforms: Vec<PlatformBuild>,
     pub published_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web_ui: Option<WebUiMeta>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

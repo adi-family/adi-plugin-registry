@@ -208,7 +208,44 @@ pub fn plugin_publish_service_routes<S: PluginPublishServiceHandler>() -> Router
         .route("/v1/publish/plugins/:id/:version/:platform", post(plugin_publish_service_publish::<S>))
 }
 
-pub fn create_router<S: IndexServiceHandler + SearchServiceHandler + PackageServiceHandler + PackagePublishServiceHandler + PluginServiceHandler + PluginPublishServiceHandler>() -> Router<Arc<S>> {
+#[async_trait]
+pub trait PluginWebUiPublishServiceHandler: Send + Sync + 'static {
+    async fn publish(&self, id: String, version: String, body: Vec<u8>) -> Result<PublishResponse, ApiError>;
+}
+
+async fn plugin_web_ui_publish_service_publish<S: PluginWebUiPublishServiceHandler>(
+    State(state): State<Arc<S>>,
+    Path((id, version)): Path<(String, String)>,
+    body: axum::body::Bytes,
+) -> Result<(StatusCode, Json<PublishResponse>), ApiError> {
+    let result = state.publish(id, version, body.to_vec()).await?;
+    Ok((StatusCode::CREATED, Json(result)))
+}
+
+pub fn plugin_web_ui_publish_service_routes<S: PluginWebUiPublishServiceHandler>() -> Router<Arc<S>> {
+    Router::new()
+        .route("/v1/publish/plugins/:id/:version/web", post(plugin_web_ui_publish_service_publish::<S>))
+}
+
+#[async_trait]
+pub trait PluginWebUiServiceHandler: Send + Sync + 'static {
+    async fn download(&self, id: String, version: String) -> Result<axum::response::Response, ApiError>;
+}
+
+async fn plugin_web_ui_service_download<S: PluginWebUiServiceHandler>(
+    State(state): State<Arc<S>>,
+    Path((id, version)): Path<(String, String)>,
+) -> Result<axum::response::Response, ApiError> {
+    let result = state.download(id, version).await?;
+    Ok(result)
+}
+
+pub fn plugin_web_ui_service_routes<S: PluginWebUiServiceHandler>() -> Router<Arc<S>> {
+    Router::new()
+        .route("/v1/plugins/:id/:version/web.js", get(plugin_web_ui_service_download::<S>))
+}
+
+pub fn create_router<S: IndexServiceHandler + SearchServiceHandler + PackageServiceHandler + PackagePublishServiceHandler + PluginServiceHandler + PluginPublishServiceHandler + PluginWebUiPublishServiceHandler + PluginWebUiServiceHandler>() -> Router<Arc<S>> {
     Router::new()
         .merge(index_service_routes())
         .merge(search_service_routes())
@@ -216,4 +253,6 @@ pub fn create_router<S: IndexServiceHandler + SearchServiceHandler + PackageServ
         .merge(package_publish_service_routes())
         .merge(plugin_service_routes())
         .merge(plugin_publish_service_routes())
+        .merge(plugin_web_ui_publish_service_routes())
+        .merge(plugin_web_ui_service_routes())
 }

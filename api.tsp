@@ -52,11 +52,17 @@ model PackageInfo {
   changelog?: string;
 }
 
+model WebUiMeta {
+  entryUrl: string;
+  sizeBytes: uint64;
+}
+
 model PluginInfo {
   id: string;
   version: string;
   platforms: PlatformBuild[];
   publishedAt: uint64;
+  webUi?: WebUiMeta;
 }
 
 model RegistryIndex {
@@ -175,5 +181,25 @@ interface PluginPublishService {
   publish(@path id: string, @path version: string, @path platform: string, ...PublishParams, @body body: bytes): {
     @statusCode statusCode: 201;
     @body body: PublishResponse;
+  };
+}
+
+@route("/v1/publish/plugins")
+interface PluginWebUiPublishService {
+  @post
+  @route("/{id}/{version}/web")
+  publish(@path id: string, @path version: string, @body body: bytes): {
+    @statusCode statusCode: 201;
+    @body body: PublishResponse;
+  };
+}
+
+@route("/v1/plugins")
+interface PluginWebUiService {
+  @get
+  @route("/{id}/{version}/web.js")
+  download(@path id: string, @path version: string): {
+    @statusCode statusCode: 200;
+    @body body: bytes;
   };
 }
