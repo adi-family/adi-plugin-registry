@@ -252,7 +252,7 @@ pub fn create_router<S: IndexServiceHandler + SearchServiceHandler + PackageServ
         .merge(package_service_routes())
         .merge(package_publish_service_routes())
         .merge(plugin_service_routes())
-        .merge(plugin_publish_service_routes())
         .merge(plugin_web_ui_publish_service_routes())
+        .merge(plugin_publish_service_routes())
         .merge(plugin_web_ui_service_routes())
 }
